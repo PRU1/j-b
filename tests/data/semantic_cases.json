@@ -1,0 +1,72 @@
+[
+  {
+    "name": "supported_paraphrase",
+    "source": "Built Python scripts that generated weekly sales reports.",
+    "quotes": ["Built Python scripts that generated weekly sales reports."],
+    "bullet": "Automated weekly sales reporting using Python.",
+    "keyword": "Python",
+    "job_quote": "Use Python to automate recurring reports.",
+    "support": "supported",
+    "relevance": "supported"
+  },
+  {
+    "name": "invented_leadership",
+    "source": "Built Python scripts that generated weekly sales reports.",
+    "quotes": ["Built Python scripts that generated weekly sales reports."],
+    "bullet": "Led a team building Python scripts for weekly sales reports.",
+    "keyword": "Python",
+    "job_quote": "Use Python to automate recurring reports.",
+    "support": "unsupported",
+    "relevance": "supported"
+  },
+  {
+    "name": "invented_metric",
+    "source": "Built Python scripts that generated weekly sales reports.",
+    "quotes": ["Built Python scripts that generated weekly sales reports."],
+    "bullet": "Built Python sales reporting scripts that cut costs by 40%.",
+    "keyword": "Python",
+    "job_quote": "Use Python to automate recurring reports.",
+    "support": "unsupported",
+    "relevance": "supported"
+  },
+  {
+    "name": "keyword_without_relevance",
+    "source": "Wrote a history essay about the Python programming language.",
+    "quotes": ["Wrote a history essay about the Python programming language."],
+    "bullet": "Wrote a history essay about the Python programming language.",
+    "keyword": "Python",
+    "job_quote": "Build production data-processing services in Python.",
+    "support": "supported",
+    "relevance": "unsupported"
+  },
+  {
+    "name": "unrelated_project_composition",
+    "source": "Weather project: Built a dashboard using JavaScript. Coursework: Used Python for numerical exercises.",
+    "quotes": ["Built a dashboard using JavaScript.", "Used Python for numerical exercises."],
+    "bullet": "Built a weather dashboard using Python.",
+    "keyword": "Python",
+    "job_quote": "Build data visualization tools using Python.",
+    "support": "unsupported",
+    "relevance": "unsupported"
+  },
+  {
+    "name": "supported_transferable_skill",
+    "source": "Added unit tests to validate sensor data processing and catch malformed records.",
+    "quotes": ["Added unit tests to validate sensor data processing and catch malformed records."],
+    "bullet": "Improved data validation through unit tests for malformed sensor records.",
+    "keyword": "unit tests",
+    "job_quote": "Write unit tests for data-processing pipelines.",
+    "support": "supported",
+    "relevance": "supported"
+  },
+  {
+    "name": "ambiguous_personal_contribution",
+    "source": "Team project: a Python reporting dashboard. Individual responsibilities were not recorded.",
+    "quotes": ["Team project: a Python reporting dashboard. Individual responsibilities were not recorded."],
+    "bullet": "Implemented the Python reporting dashboard.",
+    "keyword": "Python",
+    "job_quote": "Implement reporting tools using Python.",
+    "support": "uncertain",
+    "relevance": "uncertain"
+  }
+]

@@ -1,0 +1,227 @@
+"""Deterministic evidence/coverage checks; no semantic truth claims."""
+import hashlib
+import json
+import re
+
+from .text import plain_quote
+
+
+def digest(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+
+
+def normalize(text):
+    return " ".join(text.split()).casefold()
+
+
+def contains(text, phrase):
+    return re.search(r"(?<!\w)" + re.escape(normalize(phrase)) + r"(?!\w)", normalize(text)) is not None
+
+
+def check_plan(plan, job):
+    errors, ids = [], set()
+    for req in plan["requirements"]:
+        if req["id"] in ids:
+            errors.append(f"Duplicate requirement {req['id']}")
+        ids.add(req["id"])
+        if req["job_quote"] not in job:
+            errors.append(f"{req['id']}: job quote is not an exact source substring")
+        if not contains(req["job_quote"], req["keyword"]):
+            errors.append(f"{req['id']}: keyword is absent from its job quote")
+    for key in ("company", "role"):
+        if not contains(job, plan[key]):
+            errors.append(f"{key} must appear verbatim in the job description")
+    return errors
+
+
+def claims(candidate):
+    for i, claim in enumerate(candidate["header"]):
+        yield f"header/{i}", claim, False
+    for s, section in enumerate(candidate["sections"]):
+        for e, entry in enumerate(section["entries"]):
+            for field in ("title", "detail"):
+                yield f"section/{s}/entry/{e}/{field}", entry[field], False
+            for b, bullet in enumerate(entry["bullets"]):
+                yield f"section/{s}/entry/{e}/bullet/{b}", bullet, True
+    for p, paragraph in enumerate(candidate["cover_letter"]):
+        yield f"cover/{p}", paragraph, False
+
+
+def check_candidate(candidate, plan, sources, job, outline, approved=False, layout=None,
+                    semantic_reviews=None, semantic_approvals=()):
+    requirements = {r["id"]: r for r in plan["requirements"]}
+    errors, review, nodes, covered, pending = [], [], [], set(), []
+    expected_sections = [s["title"] for s in outline["sections"]]
+    if [s["title"] for s in candidate["sections"]] != expected_sections:
+        errors.append("Section order/titles differ from the approved outline")
+    if candidate["name"] != outline["name"]:
+        errors.append("Candidate name differs from the approved outline")
+    for section, expected in zip(candidate["sections"], outline["sections"]):
+        if [e["title"]["text"] for e in section["entries"]] != expected["entries"]:
+            errors.append(f"{section['title']}: entries differ from the approved outline")
+    bullet_index = 0
+    for path, claim, bullet in claims(candidate):
+        node_errors, node_review = [], []
+        quotations = []
+        plain_quotations = []
+        for evidence in claim["evidence"]:
+            source, quote = evidence["source"], evidence["quote"]
+            corpus = job if source == "job.txt" and path.startswith("cover/") else sources.get(source)
+            if corpus is None or (not source.startswith("master/") and source != "job.txt"):
+                node_errors.append(f"Source {source} cannot establish facts here")
+            elif quote not in corpus:
+                node_errors.append(f"Quote not found verbatim in {source}")
+            else:
+                quotations.append(quote)
+                plain_quotations.append(plain_quote(quote, source))
+        copies_quote = normalize(claim["text"]) in [normalize(q) for q in quotations + plain_quotations]
+        if not copies_quote and not (bullet and semantic_reviews is not None):
+            node_review.append("Reworded/composed claim: confirm the cited evidence supports every assertion")
+        semantic_status, record = None, None
+        if bullet and semantic_reviews is not None:
+            from .semantic import approval_key, current_record, reasons, review_inputs, verdict
+            inputs = review_inputs(candidate, path, claim, plan, sources, job)
+            record = current_record(semantic_reviews.get(path), inputs)
+            if record is None:
+                semantic_status = "pending"
+                pending.append(f"{path}: semantic review missing or stale; run resume")
+            else:
+                semantic_status = verdict(record)
+                if semantic_status == "unsupported":
+                    node_errors.append("Semantic review: " + reasons(record))
+                elif semantic_status == "uncertain" and approval_key(record) not in semantic_approvals:
+                    node_review.append("Uncertain semantic review: " + reasons(record))
+        numbers = re.findall(r"(?<!\w)\d+(?:[.,]\d+)*(?:%|\+)?", claim["text"])
+        evidence_numbers = re.findall(r"(?<!\w)\d+(?:[.,]\d+)*(?:%|\+)?", " ".join(quotations + plain_quotations))
+        if any(number not in evidence_numbers for number in numbers):
+            node_errors.append("Contains a number absent from its cited evidence")
+        if bullet:
+            if not claim["requirements"]:
+                node_errors.append("Every bullet must map to at least one job keyword")
+            for rid in claim["requirements"]:
+                req = requirements.get(rid)
+                if req is None:
+                    node_errors.append(f"Unknown requirement {rid}")
+                elif not contains(claim["text"], req["keyword"]):
+                    node_errors.append(f"Missing mapped keyword: {req['keyword']}")
+                else:
+                    section_title = candidate["sections"][int(path.split('/')[1])]["title"]
+                    if req["section"] != "any" and normalize(req["section"]) != normalize(section_title):
+                        node_errors.append(f"{rid} must appear in section {req['section']}")
+                    else:
+                        covered.add(rid)
+            if layout and layout.get("compiled"):
+                lines = layout.get("bullet_lines", {}).get(str(bullet_index))
+                if lines is None or lines < 1 or lines > 2:
+                    node_errors.append(f"Rendered bullet has {lines} lines (maximum 2)")
+            bullet_index += 1
+        errors.extend(f"{path}: {e}" for e in node_errors)
+        needs_review = node_review and (not approved or (bullet and semantic_reviews is not None))
+        if needs_review:
+            review.append({"path": path, "text": claim["text"], "evidence": claim["evidence"],
+                           "reason": node_review[0]})
+            if record is not None:
+                review[-1]["semantic_approval"] = approval_key(record)
+        node = {"path": path, "errors": node_errors,
+                "status": "fail" if node_errors else "review" if needs_review else
+                          "pending" if semantic_status == "pending" else "pass"}
+        if semantic_status is not None:
+            node["semantic"] = {"verdict": semantic_status, "assessment": record["result"] if record else None,
+                                "human_accepted": bool(record and approval_key(record) in semantic_approvals)}
+        if bullet:
+            node["keyword_checks"] = [{"requirement": rid,
+                "keyword": requirements[rid]["keyword"] if rid in requirements else None,
+                "in_bullet": rid in requirements and contains(claim["text"], requirements[rid]["keyword"]),
+                "in_job": rid in requirements and contains(job, requirements[rid]["keyword"])}
+                for rid in claim["requirements"]]
+        nodes.append(node)
+    missing = sorted(set(requirements) - covered)
+    if missing:
+        errors.append(f"Uncovered required job keywords: {', '.join(missing)}")
+    if not bullet_index:
+        errors.append("Resume must contain at least one bullet")
+    if not layout or not layout.get("compiled"):
+        pending.append("LaTeX page count and rendered bullet line counts are unverified")
+    else:
+        if layout.get("pages", 0) < 1 or layout["pages"] > layout["max_pages"]:
+            errors.append(f"Resume has {layout.get('pages')} pages; limit is {layout['max_pages']}")
+        if layout.get("overflow"):
+            errors.append("LaTeX reports overflowing content")
+    section_nodes = []
+    for s, section in enumerate(candidate["sections"]):
+        children = [n for n in nodes if n["path"].startswith(f"section/{s}/")]
+        status = next((state for state in ("fail", "review", "pending")
+                       if any(n["status"] == state for n in children)), "pass")
+        section_nodes.append({"title": section["title"], "status": status, "children": children})
+    status = "fail" if errors else "review" if review else "pending" if pending else "pass"
+    return {"status": status, "errors": errors, "review": review, "pending": pending,
+            "covered_requirements": sorted(covered), "tree": {"objective": "Build a supported, tailored resume and letter",
+            "status": status, "sections": section_nodes,
+            "other_claims": [n for n in nodes if not n["path"].startswith("section/")]}}
+
+
+def lean_certificate(report, candidate, plan, job, keyword_only=False):
+    """Recompute literal keyword coverage in Lean; other checks remain measurements.
+
+    Text is encoded as normalized Unicode codepoints, avoiding executable string
+    interpolation. The emitted word-character table reproduces Python's Unicode
+    regex boundaries for the finite input alphabet.
+    """
+    bits = [not report["errors"], not report["review"], not report["pending"]]
+    terms = ", ".join("true" if bit else "false" for bit in bits)
+    requirements = {r["id"]: normalize(r["keyword"]) for r in plan["requirements"]}
+    bullets = [(normalize(claim["text"]), [requirements.get(rid, "") for rid in claim["requirements"]])
+               for _, claim, is_bullet in claims(candidate) if is_bullet]
+    job = normalize(job)
+    alphabet = set(job + "".join(requirements.values()) + "".join(text for text, _ in bullets))
+    word_chars = sorted(ord(c) for c in alphabet if re.fullmatch(r"\w", c))
+
+    def codes(text):
+        return "[" + ", ".join(str(ord(c)) for c in text) + "]"
+
+    out = ["""-- Exact keyword membership is recomputed below, not imported as a Boolean.
+-- Trust boundary: Python normalization, Unicode word classification and input serialization.
+-- Other layout/evidence outcomes, model assessments and human reviews are recorded inputs.
+-- This certificate does not establish real-world facts or semantic entailment.
+set_option maxRecDepth 100000
+set_option maxHeartbeats 4000000
+
+def prefixAtBoundary (wordChars : List Nat) : List Nat → List Nat → Bool
+  | [], [] => true
+  | [], c :: _ => !(wordChars.contains c)
+  | _ :: _, [] => false
+  | k :: ks, c :: cs => (k == c) && prefixAtBoundary wordChars ks cs
+
+def scanKeyword (wordChars keyword : List Nat) (previousWord : Bool) : List Nat → Bool
+  | [] => false
+  | c :: cs =>
+      ((!previousWord) && prefixAtBoundary wordChars keyword (c :: cs)) ||
+      scanKeyword wordChars keyword (wordChars.contains c) cs
+
+def hasKeyword (wordChars text keyword : List Nat) : Bool :=
+  (!keyword.isEmpty) && scanKeyword wordChars keyword false text
+
+structure Bullet where
+  text : List Nat
+  keywords : List (List Nat)
+
+def bulletMatches (wordChars job : List Nat) (approved : List (List Nat)) (b : Bullet) : Bool :=
+  (!b.keywords.isEmpty) && b.keywords.all (fun k =>
+    approved.contains k && hasKeyword wordChars b.text k && hasKeyword wordChars job k)
+"""]
+    out += [f"def wordChars : List Nat := {word_chars}", f"def jobText : List Nat := {codes(job)}",
+            "def approvedKeywords : List (List Nat) := [" + ", ".join(codes(k) for k in requirements.values()) + "]"]
+    names = []
+    for i, (text, keywords) in enumerate(bullets):
+        name = f"bullet_{i}"
+        names.append(name)
+        out += [f"def {name} : Bullet := ⟨{codes(text)}, [" + ", ".join(codes(k) for k in keywords) + "]⟩",
+                f"theorem {name}_has_job_keyword : bulletMatches wordChars jobText approvedKeywords {name} = true := by decide"]
+    out += ["def bullets : List Bullet := [" + ", ".join(names) + "]",
+            "theorem every_bullet_has_job_keyword :",
+            "    ((!bullets.isEmpty) && bullets.all (bulletMatches wordChars jobText approvedKeywords)) = true := by decide",
+            ]
+    if not keyword_only:
+        out += [f"def checks : List Bool := [{terms}]",
+                "theorem recorded_constraints_hold : checks.all id = true := by decide"]
+    return "\n".join(out) + "\n"
