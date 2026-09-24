@@ -2,10 +2,15 @@
 
 A Python CLI that turns a job description and your master resume into three tailored LaTeX resumes and accompanying cover letters. Codex or Claude Code drafts content and reviews its factual support and job relevance; Python controls the workflow, source checks, approvals, rendering, and verification. Optional Lean checks independently verify literal job-keyword matching.
 
-**This was entirely vibe-coded** based on my proposed plan. My apologies for any bugs, I unfortunately don't have to write the code base myself. Just a reminder that since this uses an LLM backend, **do not upload anything you do not want OpenAI/Claude knowing**.
+**This was entirely vibe-coded** based on my proposed plan. My apologies for any bugs, I don't have time to write and/or verify all features of the codebase. Just a reminder that since this uses an LLM backend, **do not upload anything you do not want OpenAI/Claude knowing**.
 
 
-The project follows the plan in [scrubber.md](scrubber.md). Start with the architecture below to understand the design, or jump to [setup](#start) or the [CLI reference](#cli-reference) to run it.
+The project follows the plan in [scrubber.md](scrubber.md). Start with the architecture below to understand the design, or jump to [setup](#start) or the [CLI reference](#cli-reference) to run it. 
+
+*Update*: the old workflow used formal logic to ensure resume bullet points (i) matched the master resume and (ii) contained a keyword from the job description. The motivation was that framework should never make up information. Unfortunately, the generated resumes were too sparse to be useful. The interim fix was one loop of strict formal logic checking followed by an agent to interpolate info to fill the page.
+
+Now, autoformalization is being explored. With this approach an agent decides with more autonomy the (lean based) formal logic used in to verify the generated resume is truthful to the master resume and contains keywords from the job description. The hope is the agent has more flexibility in generating the resume, while still remaining factual. 
+
 
 ## Architecture
 
